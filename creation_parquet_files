@@ -1,0 +1,78 @@
+--Retrieve all bicycle relations that were valid on December 31st for the Netherlands. Each unique OSM relation will have exactly one record per year, corresponding to the relation present on December 31st. Replicate the process for Belgium, Denmark and Germany
+COPY (
+WITH unnested_bicycle_relations AS (
+SELECT osm_id, valid_from, valid_to, unnest(generate_series(EXTRACT('YEAR' FROM valid_from), EXTRACT('YEAR' FROM valid_to))) as year, tags, members
+FROM read_parquet('C:/Users/Vanessa/ohsome-planet/out-netherlands/contributions/history/*.parquet')
+WHERE osm_type = 'relation'
+AND map_contains_entry(tags, 'type', 'route')
+AND map_contains_entry(tags, 'route', 'bicycle')
+AND map_contains_entry(tags, 'network:type', 'node_network')
+AND map_contains_entry(tags, 'network', 'rcn')
+AND map_contains(tags, 'ref')
+),
+end_year_date AS (--add a new column that represent 31st December for each year. Each unique OSM way will have exactly one record per year, corresponding to the way present on December 31st. It does not mean yet that the record was valid on 31st December
+SELECT *,
+        CAST(year || '-12-31' AS DATE) as end_year_date --December 31st
+FROM unnested_bicycle_relations
+)
+SELECT *
+FROM end_year_date
+WHERE valid_from <= end_year_date
+AND valid_to > end_year_date
+) TO "C:/Users/Vanessa/Desktop/parquet/NL_unnested_bicycle_relations.parquet" (FORMAT parquet, OVERWRITE true);
+
+
+--Retrieve all ways tagged highway=* that were valid on December 31st for the Netherlands. Replicate the process for Belgium, Denmark and Germany
+COPY (
+WITH unnested_highways AS (
+SELECT osm_id, valid_from, valid_to, unnest(generate_series(EXTRACT('YEAR' FROM valid_from), EXTRACT('YEAR' FROM valid_to))) as year, tags
+FROM read_parquet('C:/Users/Vanessa/ohsome-planet/out-netherlands/contributions/history/*.parquet')
+WHERE osm_type = 'way'
+AND map_contains(tags, 'highway')
+),
+end_year_date AS (--add a new column that represent 31st December for each year. It does not mean yet that the record was valid on 31st December
+SELECT *,
+        CAST(year || '-12-31' AS DATE) as end_year_date --December 31st
+FROM unnested_highways
+)
+SELECT *
+FROM end_year_date
+WHERE valid_from <= end_year_date
+AND valid_to > end_year_date
+) TO "C:/Users/Vanessa/Desktop/parquet/NL_unnested_highways.parquet" (FORMAT parquet, OVERWRITE true);
+
+
+--For each bicycle relations valid on December 31st, retrieve information about its member node AND member ways. 
+--Access way member info
+COPY (
+WITH unnested_bicycle_relations_way_members_id AS (
+SELECT osm_id as br_osm_id, year as br_year, tags as br_tags, geom as br_geometry, end_year_date as br_end_year_date, unnest(list_distinct(list_apply(list_filter(members, x -> struct_extract(x, 'type') = 'way'), x -> struct_extract(x, 'id')))) as bicycle_relations_way_members_id
+FROM "C:/Users/Vanessa/Desktop/parquet/NL_unnested_bicycle_relations.parquet"
+WHERE len(list_filter(members, x -> struct_extract(x, 'type') = 'way')) > 0
+)
+SELECT br_osm_id, br_year, t1.osm_id as way_id, bicycle_relations_way_members_id, br_tags, t1.tags as way_tags, t1.geometry as way_geometry
+FROM read_parquet('C:/Users/Vanessa/ohsome-planet/out-netherlands/contributions/history/*.parquet') t1
+INNER JOIN unnested_bicycle_relations_way_members_id t2
+ON t1.osm_id = t2.bicycle_relations_way_members_id
+AND t1.osm_type = 'way'
+AND t1.valid_from <= br_end_year_date
+AND t1.valid_to > br_end_year_date
+) TO "C:/Users/Vanessa/Desktop/parquet/NL_bicycle_relations_way_members_information.parquet" (FORMAT parquet, OVERWRITE true);
+
+SELECT * FROM "C:/Users/Vanessa/Desktop/parquet/NL_bicycle_relations_way_members_information.parquet";
+
+--Access node member info
+COPY (
+WITH unnested_bicycle_relations_node_members_id AS (
+SELECT osm_id as br_osm_id, year as br_year, tags as br_tags, geom as br_geometry, end_year_date as br_end_year_date, unnest(list_distinct(list_apply(list_filter(members, x -> struct_extract(x, 'type') = 'node'), x -> struct_extract(x, 'id')))) as bicycle_relations_node_members_id
+FROM "C:/Users/Vanessa/Desktop/parquet/NL_unnested_bicycle_relations.parquet"
+WHERE len(list_filter(members, x -> struct_extract(x, 'type') = 'node')) > 0
+)
+SELECT br_osm_id, br_year, t1.osm_id as node_id, bicycle_relations_node_members_id, br_tags, t1.tags as node_tags
+FROM read_parquet('C:/Users/Vanessa/ohsome-planet/out-netherlands/contributions/history/*.parquet') t1
+INNER JOIN unnested_bicycle_relations_node_members_id t2
+ON t1.osm_id = t2.bicycle_relations_node_members_id
+AND t1.osm_type = 'node'
+AND t1.valid_from <= br_end_year_date
+AND t1.valid_to > br_end_year_date
+) TO "C:/Users/Vanessa/Desktop/parquet/NL_bicycle_relations_node_members_information.parquet" (FORMAT parquet, OVERWRITE true);
