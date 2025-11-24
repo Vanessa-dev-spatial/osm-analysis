@@ -59,8 +59,6 @@ AND t1.valid_from <= br_end_year_date
 AND t1.valid_to > br_end_year_date
 ) TO "C:/Users/Vanessa/Desktop/parquet/NL_bicycle_relations_way_members_information.parquet" (FORMAT parquet, OVERWRITE true);
 
-SELECT * FROM "C:/Users/Vanessa/Desktop/parquet/NL_bicycle_relations_way_members_information.parquet";
-
 --Access node member info
 COPY (
 WITH unnested_bicycle_relations_node_members_id AS (
