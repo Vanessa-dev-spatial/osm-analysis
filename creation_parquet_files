@@ -74,3 +74,32 @@ AND t1.osm_type = 'node'
 AND t1.valid_from <= br_end_year_date
 AND t1.valid_to > br_end_year_date
 ) TO "C:/Users/Vanessa/Desktop/parquet/NL_bicycle_relations_node_members_information.parquet" (FORMAT parquet, OVERWRITE true);
+
+
+
+----SPATIAL JOIN
+
+DESCRIBE FROM 'C:/Users/Vanessa/Desktop/parquet/NL_bicycle_relations_way_members_information.parquet'; 
+DESCRIBE FROM 'C:/Users/Vanessa/Desktop/parquet/NL_unnested_highways.parquet'; 
+
+
+--Filter highway=* to remove ways that are part of bicycle relations on December 31st
+CREATE OR REPLACE TEMP TABLE NL_highways_filtered AS
+SELECT t1.*
+FROM 'C:/Users/Vanessa/Desktop/parquet/NL_unnested_highways.parquet' AS t1
+LEFT JOIN 'C:/Users/Vanessa/Desktop/parquet/NL_bicycle_relations_way_members_information.parquet' AS t2
+ON t1.osm_id = t2.way_id
+WHERE t2.way_id IS NULL;
+
+
+--
+SELECT t1.br_year, t1.way_id, t1.way_tags, t1.valid_from, t1.valid_to, t2.osm_id as road_id, t2.tags as road_tags, year, 
+FROM (SELECT *
+FROM 'C:/Users/Vanessa/Desktop/parquet/NL_bicycle_relations_way_members_information.parquet'
+WHERE map_contains_entry(way_tags, 'highway', 'cycleway')) t1
+JOIN NL_highways_filtered t2
+ON t2.end_year_date = t1.br_end_year_date
+AND ST_DWITHIN(ST_GeomFromWKB(t1.way_geometry), t2.geom, 10) --Those outside will be excluded 
+WHERE (map_contains_entry(t2.tags, 'cycleway(*)', 'separate')
+OR map_contains_entry(t2.tags, 'bicycle', 'use_sidepath'));
+
